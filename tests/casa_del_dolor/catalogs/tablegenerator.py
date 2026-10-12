@@ -82,6 +82,20 @@ def contains_variant(dtype: sp.DataType) -> bool:
     return False
 
 
+def variant_under_list_or_map(dtype: sp.DataType, nested: bool = False) -> bool:
+    if hasattr(sp, "VariantType") and isinstance(dtype, sp.VariantType):
+        return nested
+    if isinstance(dtype, sp.ArrayType):
+        return variant_under_list_or_map(dtype.elementType, True)
+    if isinstance(dtype, sp.MapType):
+        return variant_under_list_or_map(
+            dtype.keyType, True
+        ) or variant_under_list_or_map(dtype.valueType, True)
+    if isinstance(dtype, sp.StructType):
+        return any(variant_under_list_or_map(f.dataType, nested) for f in dtype.fields)
+    return False
+
+
 class LakeTableGenerator:
     # Properties that change what a reader sees on disk: each gets its own roll, instead of
     # depending on the uniform sample over the whole property dict.
@@ -126,6 +140,12 @@ class LakeTableGenerator:
     @abstractmethod
     def get_format(self) -> str:
         pass
+
+    def allow_variant_column(
+        self, spark: SparkSession, table: SparkTable, dtype: sp.DataType
+    ) -> bool:
+        """Whether ADD COLUMNS may add a column holding a VARIANT."""
+        return True
 
     @abstractmethod
     def set_basic_properties(self) -> dict[str, str]:
@@ -324,7 +344,10 @@ class LakeTableGenerator:
     def random_ordered_columns(self, table: SparkTable, with_asc_desc: bool):
         columns_list = []
         flattened_columns = table.flat_columns()
-        for k in flattened_columns.keys():
+        # VARIANT can't be a sort, Z-order or identifier key. If every column holds one,
+        # keep them all and let Spark reject the statement
+        orderable = [k for k, v in flattened_columns.items() if not contains_variant(v)]
+        for k in orderable or flattened_columns.keys():
             if with_asc_desc:
                 columns_list.append(f"{k} ASC NULLS FIRST")
                 columns_list.append(f"{k} ASC NULLS LAST")
@@ -665,6 +688,22 @@ class IcebergTableGenerator(LakeTableGenerator):
         properties["write.format.default"] = out_format
         return properties
 
+    @staticmethod
+    def variant_formats(dtypes: list[sp.DataType]) -> tuple[FileFormat, ...]:
+        # Iceberg's Spark ORC writer can't write VARIANT, and its Parquet writer can't
+        # write one inside a list or map (Unsupported method: getVariant)
+        if any(variant_under_list_or_map(t) for t in dtypes):
+            return (FileFormat.Avro,)
+        if any(contains_variant(t) for t in dtypes):
+            return (FileFormat.Parquet, FileFormat.Avro)
+        return (FileFormat.Parquet, FileFormat.ORC, FileFormat.Avro)
+
+    def allow_variant_column(
+        self, spark: SparkSession, table: SparkTable, dtype: sp.DataType
+    ) -> bool:
+        dtypes = [c.spark_type for c in table.columns.values()] + [dtype]
+        return table.file_format in self.variant_formats(dtypes)
+
     def add_partition_clauses(self, table: SparkTable) -> list[str]:
         res = []
         timestamp_types = (sp.TimestampType,) + (
@@ -672,8 +711,10 @@ class IcebergTableGenerator(LakeTableGenerator):
         )
         flattened_columns = table.flat_columns()
         for k, val in flattened_columns.items():
-            # Iceberg cannot partition by container types
-            if isinstance(val, (sp.ArrayType, sp.MapType, sp.StructType)):
+            # Iceberg cannot partition by container or VARIANT types
+            if isinstance(
+                val, (sp.ArrayType, sp.MapType, sp.StructType)
+            ) or contains_variant(val):
                 continue
             res.append(k)
             is_timestamp = isinstance(val, timestamp_types)
@@ -1358,11 +1399,22 @@ class DeltaLakePropertiesGenerator(LakeTableGenerator):
 
     def add_partition_clauses(self, table: SparkTable) -> list[str]:
         res = []
-        # No partition by subcolumns in delta, and no partitioning by container types
+        # No partition by subcolumns in delta, and no partitioning by container or VARIANT types
         for k, sc in table.columns.items():
-            if not isinstance(sc.spark_type, (sp.ArrayType, sp.MapType, sp.StructType)):
+            if not isinstance(
+                sc.spark_type, (sp.ArrayType, sp.MapType, sp.StructType)
+            ) and not contains_variant(sc.spark_type):
                 res.append(k)
         return res
+
+    def allow_variant_column(
+        self, spark: SparkSession, table: SparkTable, dtype: sp.DataType
+    ) -> bool:
+        # CREATE enables the variantType table feature implicitly, ADD COLUMNS does not
+        spark.sql(
+            f"ALTER TABLE {table.get_table_full_path()} SET TBLPROPERTIES ('delta.feature.variantType' = 'supported')"
+        )
+        return True
 
     # DISABLED: OSS delta-spark's `DeltaCatalog` does not declare Spark 4's
     # `SUPPORTS_CREATE_TABLE_WITH_GENERATED_COLUMNS` / `..._IDENTITY_COLUMNS`
@@ -1740,11 +1792,19 @@ class PaimonTableGenerator(LakeTableGenerator):
         properties["file.format"] = out_format
         return properties
 
+    def allow_variant_column(
+        self, spark: SparkSession, table: SparkTable, dtype: sp.DataType
+    ) -> bool:
+        return table.file_format == FileFormat.Parquet
+
     def add_partition_clauses(self, table: SparkTable) -> list[str]:
         res = []
-        # No partitioning by container types
+        # No partitioning by container types. Paimon accepts a VARIANT partition at CREATE,
+        # but every Spark write then fails with PARTITION_BY_VARIANT
         for k, sc in table.columns.items():
-            if not isinstance(sc.spark_type, (sp.ArrayType, sp.MapType, sp.StructType)):
+            if not isinstance(
+                sc.spark_type, (sp.ArrayType, sp.MapType, sp.StructType)
+            ) and not contains_variant(sc.spark_type):
                 res.append(k)
         return res
 
@@ -1819,11 +1879,14 @@ class PaimonTableGenerator(LakeTableGenerator):
         if "bucket-key" in properties and "bucket" not in properties:
             del properties["bucket-key"]
         elif "bucket" in properties:
-            bucket_cols = pk_cols if has_pk else key_cols + part_cols
+            # A bucket key can't use partition columns, and a bucketed append table needs one
+            bucket_cols = pk_cols if has_pk else key_cols
             if bucket_cols:
                 properties["bucket-key"] = random.choice(bucket_cols)
             else:
                 properties.pop("bucket-key", None)
+                if not has_pk:
+                    del properties["bucket"]
         # full-compaction.delta-commits is only valid for fixed-bucket tables. Paimon rejects it
         # for unaware bucket (append-only without a 'bucket') and dynamic bucket (primary key
         # without a fixed 'bucket') alike, so require a fixed bucket here.
