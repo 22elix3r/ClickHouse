@@ -1707,7 +1707,7 @@ bool DolorIntegration::performTableIntegration(RandomGenerator & rg, SQLTable & 
             R"({}{{"name":"{}","type":"{}"}})",
             first ? "" : ",",
             escapeJSON(entry.getBottomName()),
-            escapeJSON(entry.getBottomType()->typeName(false, true)));
+            escapeJSON(entry.getBottomType()->typeName(false, false)));
         first = false;
     }
     buf += "]";
