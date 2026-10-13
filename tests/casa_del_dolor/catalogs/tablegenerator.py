@@ -141,12 +141,6 @@ class LakeTableGenerator:
     def get_format(self) -> str:
         pass
 
-    def allow_variant_column(
-        self, spark: SparkSession, table: SparkTable, dtype: sp.DataType
-    ) -> bool:
-        """Whether ADD COLUMNS may add a column holding a VARIANT."""
-        return True
-
     @abstractmethod
     def set_basic_properties(self) -> dict[str, str]:
         return {}
@@ -687,22 +681,6 @@ class IcebergTableGenerator(LakeTableGenerator):
             self.write_format = FileFormat.file_from_str(out_format)
         properties["write.format.default"] = out_format
         return properties
-
-    @staticmethod
-    def variant_formats(dtypes: list[sp.DataType]) -> tuple[FileFormat, ...]:
-        # Iceberg's Spark ORC writer can't write VARIANT, and its Parquet writer can't
-        # write one inside a list or map (Unsupported method: getVariant)
-        if any(variant_under_list_or_map(t) for t in dtypes):
-            return (FileFormat.Avro,)
-        if any(contains_variant(t) for t in dtypes):
-            return (FileFormat.Parquet, FileFormat.Avro)
-        return (FileFormat.Parquet, FileFormat.ORC, FileFormat.Avro)
-
-    def allow_variant_column(
-        self, spark: SparkSession, table: SparkTable, dtype: sp.DataType
-    ) -> bool:
-        dtypes = [c.spark_type for c in table.columns.values()] + [dtype]
-        return table.file_format in self.variant_formats(dtypes)
 
     def add_partition_clauses(self, table: SparkTable) -> list[str]:
         res = []
@@ -1406,15 +1384,6 @@ class DeltaLakePropertiesGenerator(LakeTableGenerator):
             ) and not contains_variant(sc.spark_type):
                 res.append(k)
         return res
-
-    def allow_variant_column(
-        self, spark: SparkSession, table: SparkTable, dtype: sp.DataType
-    ) -> bool:
-        # CREATE enables the variantType table feature implicitly, ADD COLUMNS does not
-        spark.sql(
-            f"ALTER TABLE {table.get_table_full_path()} SET TBLPROPERTIES ('delta.feature.variantType' = 'supported')"
-        )
-        return True
 
     # DISABLED: OSS delta-spark's `DeltaCatalog` does not declare Spark 4's
     # `SUPPORTS_CREATE_TABLE_WITH_GENERATED_COLUMNS` / `..._IDENTITY_COLUMNS`
