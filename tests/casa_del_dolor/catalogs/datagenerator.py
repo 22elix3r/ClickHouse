@@ -1,6 +1,6 @@
 import random
 import re
-from decimal import Decimal, getcontext
+from decimal import ROUND_HALF_UP, Decimal, getcontext, localcontext
 from datetime import datetime, timedelta, date
 import json
 import logging
@@ -1038,10 +1038,14 @@ class LakeDataGenerator:
                 int(value.year), int(value.month), int(value.day)
             )
         if isinstance(spark_type, DecimalType):
-            # Iceberg validates that the BigDecimal scale equals the field scale.
-            return jvm.java.math.BigDecimal(str(value)).setScale(
-                spark_type.scale, jvm.java.math.RoundingMode.HALF_UP
-            )
+            # Iceberg validates that the BigDecimal scale equals the field scale. py4j
+            # returns a JVM BigDecimal as a Python Decimal, so rescale here; it is sent
+            # back as `new BigDecimal(str(d))`, which keeps the scale.
+            with localcontext() as ctx:
+                ctx.prec = 80
+                return Decimal(str(value)).quantize(
+                    Decimal(1).scaleb(-spark_type.scale), rounding=ROUND_HALF_UP
+                )
         if isinstance(spark_type, BinaryType):
             return jvm.java.nio.ByteBuffer.wrap(bytes(value))
         return None
