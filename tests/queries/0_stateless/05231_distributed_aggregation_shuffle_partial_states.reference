@@ -1,7 +1,7 @@
 -- rule-based: partial aggregation, shuffle of the states, merge per bucket
 GatherExchange
   Expression ((Project names + Projection))
-    MergingAggregated (merge)
+    Aggregating (merge)
       ShuffleExchange (by hash([__table1.k]))
         Aggregating (partial)
           Expression ((Before GROUP BY + Change column names to column identifiers))
@@ -23,7 +23,7 @@ GatherExchange
 -- Cascades, many groups: the merge runs per bucket over shuffled states
 GatherExchange
   Expression ((Project names + Projection))
-    MergingAggregated
+    Aggregating
       ShuffleExchange
         Aggregating
           Expression ((Before GROUP BY + Change column names to column identifiers))

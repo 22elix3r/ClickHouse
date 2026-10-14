@@ -224,6 +224,16 @@ static Cost mergingAggregatedCost(const CostInputs & inputs)
     return cost;
 }
 
+Cost LocalMergeStrategy::estimateOperatorCost(const CostInputs & inputs) const
+{
+    return mergingAggregatedCost(inputs);
+}
+
+Cost ShuffleMergeStrategy::estimateOperatorCost(const CostInputs & inputs) const
+{
+    return mergingAggregatedCost(inputs);
+}
+
 static Cost broadcastExchangeCost(const CostInputs & inputs)
 {
     Cost cost;
@@ -304,6 +314,10 @@ Cost estimateOperatorCost(const CostInputs & inputs, const IImplementationStrate
 
     if (typeid_cast<const FilterStep *>(step) || typeid_cast<const ExpressionStep *>(step))
         return Cost{.work = inputs.config.expression_cost_per_row * inputStats(inputs, 0).estimated_row_count / inputs.parallelism};
+
+    /// The merge of partial states: a `MergingAggregatedStep`, or an `AggregatingStep` that only merges.
+    if (const auto * merge_strategy = dynamic_cast<const IMergeStrategy *>(strategy))
+        return merge_strategy->estimateOperatorCost(inputs);
 
     if (typeid_cast<const AggregatingStep *>(step))
     {

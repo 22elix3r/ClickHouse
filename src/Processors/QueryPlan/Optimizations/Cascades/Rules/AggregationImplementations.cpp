@@ -412,6 +412,15 @@ protected:
     std::vector<GroupExpressionPtr> applyImpl(GroupExpressionPtr expression, const ExpressionProperties & required_properties, Memo & memo) const override;
 
 private:
+    /// The partial aggregation of the two-stage split under this merge, or nullptr for any other merge.
+    static const AggregatingStep * getPartialOfTwoStageSplit(const GroupExpression & expression, const Memo & memo)
+    {
+        const auto & partial_expressions = memo.getGroup(expression.inputs.front().group_id)->logical_expressions;
+        if (partial_expressions.empty() || !partial_expressions.front()->is_partial_of_two_stage_aggregation)
+            return nullptr;
+        return typeid_cast<const AggregatingStep *>(partial_expressions.front()->getQueryPlanStep());
+    }
+
     /// Whether the merge may also run per bucket over states shuffled by the keys.
     /// When it may not, it runs on one node.
     static bool isShuffleApplicable(const GroupExpression & expression, const MergingAggregatedStep & merge_step, const Memo & memo)
@@ -425,9 +434,10 @@ private:
             return false;
 
         /// Only the merge created by the two-stage split: its group has the statistics of the
-        /// original aggregation, which the cost model needs to compare the two plans.
-        const auto & partial_expressions = memo.getGroup(expression.inputs.front().group_id)->logical_expressions;
-        if (partial_expressions.empty() || !partial_expressions.front()->is_partial_of_two_stage_aggregation)
+        /// original aggregation, which the cost model needs to compare the two plans. The merge per bucket
+        /// is an aggregation that reads the states, which cannot run in order.
+        const auto * partial_step = getPartialOfTwoStageSplit(expression, memo);
+        if (!partial_step || partial_step->inOrder())
             return false;
 
         /// A non-final merge, or one that must output buckets in order, feeds a consumer that reads
@@ -484,10 +494,10 @@ std::vector<GroupExpressionPtr> MergingAggregationImplementation::applyImpl(Grou
 
         auto shuffle = std::make_shared<GroupExpression>(*expression);
         /// Each node receives the states of its keys from every sender in no particular bucket
-        /// order, which the memory-efficient merge cannot consume.
-        auto shuffle_step = merge_step->cloneWithoutMemoryEfficientAggregation();
-        shuffle_step->setStepDescription(*merge_step);
-        shuffle->plan_step = std::move(shuffle_step);
+        /// order, which the memory-efficient merge cannot consume. `MergingAggregatedStep` without it
+        /// would keep every received state in memory until the input ends.
+        shuffle->plan_step = getPartialOfTwoStageSplit(*expression, memo)->createMergeOfPartialStates(
+            merge_step->getInputHeaders().front(), merge_step->isFinal());
         shuffle->strategy = strategySingleton<ShuffleMergeStrategy>();
         shuffle->inputs[0].required_properties.distribution = by_keys;
         shuffle->properties.distribution = by_keys;

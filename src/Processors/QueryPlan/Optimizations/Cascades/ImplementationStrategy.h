@@ -29,6 +29,10 @@ struct IReadStrategy : IImplementationStrategy
 {
     virtual Cost estimateOperatorCost(const CostInputs & inputs) const = 0;
 };
+struct IMergeStrategy : IImplementationStrategy
+{
+    virtual Cost estimateOperatorCost(const CostInputs & inputs) const = 0;
+};
 
 /// --- Join strategies ---
 
@@ -71,19 +75,20 @@ struct PartialAggregationStrategy final : IAggregationStrategy
 };
 
 /// --- Merge of partial aggregation states ---
-/// No cost functions: `MergingAggregatedStep` is priced by its own formula, divided by the
-/// parallelism of its distribution.
+/// Both are priced by one formula, divided by the parallelism of their distribution.
 
 /// All partial states are gathered to one node and merged there.
-struct LocalMergeStrategy final : IImplementationStrategy
+struct LocalMergeStrategy final : IMergeStrategy
 {
     String getName() const override { return "LocalMerge"; }
+    Cost estimateOperatorCost(const CostInputs & inputs) const override;
 };
 
 /// The partial states arrive shuffled by the group keys, and each node merges the states of its own keys.
-struct ShuffleMergeStrategy final : IImplementationStrategy
+struct ShuffleMergeStrategy final : IMergeStrategy
 {
     String getName() const override { return "ShuffleMerge"; }
+    Cost estimateOperatorCost(const CostInputs & inputs) const override;
 };
 
 /// --- Replicated subplan ---

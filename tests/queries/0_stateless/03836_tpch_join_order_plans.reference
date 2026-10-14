@@ -125,7 +125,7 @@ Expression (Project names)
   GatherExchange
     Expression ((Before ORDER BY + Projection))
       Sorting
-        MergingAggregated
+        Aggregating
           ShuffleExchange
             Aggregating
               Expression (Before GROUP BY)
@@ -195,7 +195,7 @@ Expression (Project names)
   GatherExchange
     Expression ((Before ORDER BY + Projection))
       Sorting
-        MergingAggregated
+        Aggregating
           ShuffleExchange
             Aggregating
               Expression ((Before GROUP BY + ))
@@ -284,7 +284,7 @@ Expression (Project names)
   GatherExchange
     Expression ((Before ORDER BY + Projection))
       Sorting
-        MergingAggregated
+        Aggregating
           ShuffleExchange
             Aggregating
               Expression ((Before GROUP BY + (Change column names to column identifiers + (Project names + Projection))))
@@ -321,7 +321,7 @@ Expression (Project names)
           BroadcastExchange
             GatherExchange
               Filter ((WHERE + (Change column names to column identifiers + (Convert VIEW subquery result to VIEW table structure + (Project names + (Projection + (Change column names to column identifiers + (Project names + Projection))))))))
-                MergingAggregated
+                Aggregating
                   ShuffleExchange
                     Aggregating
                       Expression (Before GROUP BY)
@@ -376,7 +376,7 @@ Expression ((Project names + Projection))
                 GatherExchange
                   JoinLogical (Shuffle HashJoin )
                     Expression ((Create renaming actions for scalar subquery + (Create correlated subquery result alias + (Project names + Projection))))
-                      MergingAggregated
+                      Aggregating
                         ShuffleExchange
                           Aggregating
                             Expression (Before GROUP BY)
@@ -475,7 +475,7 @@ Expression (Project names)
                 Filter (((WHERE + (Renaming correlated columns to equivalent expressions in subquery + (Change column names to column identifiers + (Project names + (Projection + (Change column names to column identifiers + (Project names + Projection))))))) + WHERE))
                   JoinLogical (Shuffle HashJoin )
                     Expression ((((WHERE + (Renaming correlated columns to equivalent expressions in subquery + (Change column names to column identifiers + (Project names + (Projection + (Change column names to column identifiers + (Project names + Projection))))))) + WHERE) + (Create renaming actions for scalar subquery + (Create correlated subquery result alias + (Project names + Projection)))))
-                      MergingAggregated
+                      Aggregating
                         ShuffleExchange
                           Aggregating
                             Expression ((((((WHERE + (Renaming correlated columns to equivalent expressions in subquery + (Change column names to column identifiers + (Project names + (Projection + (Change column names to column identifiers + (Project names + Projection))))))) + WHERE) + (Create renaming actions for scalar subquery + (Create correlated subquery result alias + (Project names + Projection)))) + Before GROUP BY) + (WHERE + (Renaming correlated columns to equivalent expressions in subquery + Change column names to column )

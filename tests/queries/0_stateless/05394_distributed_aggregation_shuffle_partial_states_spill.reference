@@ -1,0 +1,7 @@
+-- results match the local execution
+20000	4999950000
+20000	4999950000
+20000	4999950000
+-- the tasks that merge the shuffled states spill to disk
+05394_cascades	1
+05394_rule_based	1

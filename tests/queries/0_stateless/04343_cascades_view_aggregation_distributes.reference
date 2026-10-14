@@ -7,7 +7,7 @@ Expression (Project names)
             ShuffleExchange
               ReadFromMergeTree (ParallelRead default.dims)
           Expression ((Change column names to column identifiers + (Convert VIEW subquery result to VIEW table structure + (Project names + (Projection + (Change column names to column identifiers + (Project names + Projection)))))))
-            MergingAggregated
+            Aggregating
               ShuffleExchange
                 Aggregating
                   Expression ((Before GROUP BY + Change column names to column identifiers))

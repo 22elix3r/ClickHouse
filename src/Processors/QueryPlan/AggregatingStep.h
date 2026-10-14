@@ -126,6 +126,11 @@ public:
     /// When we apply aggregate projection (which is partial), this step should be replaced to AggregatingProjection.
     /// Argument input_stream would be the second input (from projection).
     std::unique_ptr<AggregatingProjectionStep> convertToAggregatingProjection(const SharedHeader & input_header) const;
+    /// An aggregation that merges the partial states of this one, read from `states_header` (the keys,
+    /// then the states), and outputs final values or, for a `final_` of false, merged states. It merges
+    /// every block as it arrives and spills to disk under the external aggregation settings. Its input
+    /// needs no bucket numbers and no bucket order.
+    std::unique_ptr<AggregatingStep> createMergeOfPartialStates(const SharedHeader & states_header, bool final_) const;
 
     static ActionsDAG makeCreatingMissingKeysForGroupingSetDAG(
         const Block & in_header,

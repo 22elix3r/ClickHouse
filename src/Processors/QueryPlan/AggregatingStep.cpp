@@ -1510,6 +1510,37 @@ QueryPlanStepPtr AggregatingStep::clone() const
     );
 }
 
+std::unique_ptr<AggregatingStep> AggregatingStep::createMergeOfPartialStates(const SharedHeader & states_header, bool final_) const
+{
+    if (!canUseProjection())
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Cannot merge partial states of an aggregation with grouping sets or in order");
+
+    auto merge_params = params;
+    merge_params.only_merge = true;
+    /// The merge sees a different number of groups than this aggregation, so the hash table size
+    /// collected for this aggregation does not fit it.
+    merge_params.stats_collecting_params.setKey(0);
+
+    auto merge_step = std::make_unique<AggregatingStep>(
+        states_header,
+        std::move(merge_params),
+        GroupingSetsParamsList{},
+        final_,
+        max_block_size,
+        aggregation_in_order_max_block_bytes,
+        merge_threads,
+        temporary_data_merge_threads,
+        /*storage_has_evenly_distributed_read_=*/false,
+        group_by_use_nulls,
+        SortDescription{},
+        SortDescription{},
+        /*should_produce_results_in_order_of_bucket_number_=*/false,
+        /*memory_bound_merging_of_aggregation_results_enabled_=*/false,
+        /*explicit_sorting_required_for_aggregation_in_order_=*/false);
+    merge_step->setStepDescription("merge");
+    return merge_step;
+}
+
 void AggregatingStep::setFinal(bool new_value)
 {
     if (new_value == final)

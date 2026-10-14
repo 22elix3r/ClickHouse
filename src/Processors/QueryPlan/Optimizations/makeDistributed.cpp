@@ -930,11 +930,11 @@ void tryMakeDistributedAggregation(QueryPlan::Node & node, QueryPlan::Nodes & no
         exchange_scatter_node.children = {&partial_gather_node};
 
         /// Each bucket receives the states of its keys from every sender in no particular bucket order,
-        /// which the memory-efficient merge cannot consume.
+        /// which the memory-efficient merge cannot consume. `MergingAggregatedStep` without it would keep
+        /// every received state in memory until the input ends.
         auto & merge_node = nodes.emplace_back();
-        merge_node.step = makeMergeOfPartialStates(
-            *aggregating_step, exchange_scatter_node.step->getOutputHeader(), /*memory_efficient_merge=*/false,
-            /*produce_results_in_bucket_order=*/false, /*memory_bound_merging=*/false);
+        merge_node.step = aggregating_step->createMergeOfPartialStates(
+            exchange_scatter_node.step->getOutputHeader(), aggregating_step->getFinal());
         merge_node.children = {&exchange_scatter_node};
 
         QueryPlan::Node gather_node;

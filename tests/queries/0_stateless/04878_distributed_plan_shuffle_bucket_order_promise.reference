@@ -82,7 +82,7 @@ Expression ((Project names + Projection))
 -- complete stage: the shuffle scatter stays
 GatherExchange
   Expression ((Project names + Projection))
-    MergingAggregated (merge)
+    Aggregating (merge)
       ShuffleExchange (by hash([__table1.k]))
         Aggregating (partial)
           ShuffleExchange (any)
