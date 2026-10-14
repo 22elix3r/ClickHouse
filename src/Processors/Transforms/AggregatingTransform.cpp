@@ -1430,7 +1430,15 @@ void AggregatingTransform::consume(Chunk chunk)
     if (params->params.only_merge)
     {
         materializeChunk(chunk);
-        if (!params->aggregator.mergeOnBlock(chunk.detachColumns(), num_rows, false, variants, no_more_keys, is_cancelled))
+        /// Blocks of states can be small, e.g. the part of one two-level bucket that a shuffle sends to this
+        /// node. The spill is decided by the memory of the whole query, which other streams can keep above
+        /// the limit, so a check after every small block would write a file of a few rows each time.
+        /// Check once per `max_block_size` rows, about as often as the aggregation of input rows does.
+        merged_rows_since_spill_check += num_rows;
+        const bool may_spill = merged_rows_since_spill_check >= params->params.max_block_size;
+        if (may_spill)
+            merged_rows_since_spill_check = 0;
+        if (!params->aggregator.mergeOnBlock(chunk.detachColumns(), num_rows, false, variants, no_more_keys, is_cancelled, may_spill))
             is_consume_finished = true;
     }
     else

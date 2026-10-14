@@ -232,6 +232,8 @@ private:
 
     UInt64 src_rows = 0;
     UInt64 src_bytes = 0;
+    /// Rows of partial states merged since the last check whether to spill, see `consume`.
+    UInt64 merged_rows_since_spill_check = 0;
 
     std::atomic_flag is_generate_initialized;
     bool is_consume_finished = false;

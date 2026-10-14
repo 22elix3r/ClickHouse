@@ -548,11 +548,13 @@ public:
         size_t row_end,
         AggregateFunctionInstruction * aggregate_instructions) const;
 
-    /// Used for aggregate projection.
+    /// Merges a block of partial states into `result`. With `may_spill` set, it also writes `result` to a
+    /// temporary file when the query uses more memory than `max_bytes_before_external_group_by`.
     bool mergeOnBlock(Columns columns, size_t rows, bool is_overflows,
         AggregatedDataVariants & result,
         bool & no_more_keys,
-        std::atomic<bool> & is_cancelled) const;
+        std::atomic<bool> & is_cancelled,
+        bool may_spill = true) const;
 
     void mergeOnBlockSmall(
         AggregatedDataVariants & result,

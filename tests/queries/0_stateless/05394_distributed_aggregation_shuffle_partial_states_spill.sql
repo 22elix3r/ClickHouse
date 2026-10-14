@@ -1,5 +1,7 @@
 -- The merge per bucket over shuffled partial states merges every block as it arrives and spills to disk
 -- under the external aggregation settings. Without that it would keep all received states in memory.
+-- The blocks it receives are small, and it decides to spill at most once per `max_block_size` rows, so
+-- it does not write a file for every few rows.
 
 DROP TABLE IF EXISTS t_shuffle_states_spill;
 CREATE TABLE t_shuffle_states_spill (k String, v UInt64) ENGINE = MergeTree ORDER BY tuple()
@@ -21,6 +23,9 @@ SET param__internal_join_table_stat_hints = '{"t_shuffle_states_spill": {"cardin
 -- Spill as soon as possible. The spill needs the two-level hash table.
 SET max_bytes_before_external_group_by = 1, max_bytes_ratio_before_external_group_by = 0;
 SET group_by_two_level_threshold = 1, group_by_two_level_threshold_bytes = 1;
+-- Each merging task receives about 20000 rows of states: about 20 checks whether to spill, plus one file
+-- for each of its streams at the end.
+SET max_block_size = 1000, max_threads = 4;
 
 SELECT '-- results match the local execution';
 SELECT count(), sum(s) FROM (SELECT k, sum(v) AS s FROM t_shuffle_states_spill GROUP BY k) SETTINGS make_distributed_plan = 0;
@@ -35,9 +40,9 @@ SET make_distributed_plan = 0;
 
 SYSTEM FLUSH LOGS query_log, processors_profile_log;
 
-SELECT '-- the tasks that merge the shuffled states spill to disk';
+SELECT '-- the tasks that merge the shuffled states spill to disk, but not for every small block';
 -- The merging tasks are the ones that do not read the table.
-SELECT log_comment, sum(ProfileEvents['ExternalAggregationWritePart']) > 0
+SELECT log_comment, min(ProfileEvents['ExternalAggregationWritePart']) > 0, max(ProfileEvents['ExternalAggregationWritePart']) <= 30
 FROM system.query_log
 WHERE event_date >= yesterday() AND type = 'QueryFinish' AND NOT is_initial_query
     AND initial_query_id IN (
